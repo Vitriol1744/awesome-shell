@@ -8,23 +8,39 @@
 
 #include "Logger.hpp"
 
-#include <cstdlib>
 #include <string_view>
 
 #include <unistd.h>
+#include <pwd.h>
 
 namespace Builtins
 {
     std::unordered_map<std::string_view, BuiltinFunction> builtins;
 
-    int exit(std::vector<char*>&)
+    int exit(std::vector<char*>& args)
     {
-        return EXIT_SUCCESS;
+        if (args.size() > 3) 
+        {
+            LogError("exit: Too many arguments provided");
+            for (auto arg : args) LogError("{}", arg);
+            return true;
+        }
+        int status = args.size() > 1 ? atoi(args[1]) : 0;
+        LogInfo("status: {}", status);
+        ::exit(status);
+        return status;
     }
     int cd(std::vector<char*>& args)
     {
-        if (args.size() < 2 || args[1] == nullptr)
-            LogError("awsh: expected argument to \"cd\"");
+        if (args.size() < 2 || args[1] == nullptr || strcmp(args[1], "~") == 0)
+        {
+            passwd* pw = getpwuid (geteuid());
+            std::string homedir;
+            homedir.reserve(strlen("/home/") + strlen(pw->pw_name));
+            homedir = "/home/";
+            homedir += pw->pw_name;
+            if (chdir(homedir.data())) LogError("Failed to change directory");    
+        }
         else
         {
             if (chdir(args[1]) != 0)

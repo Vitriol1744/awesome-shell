@@ -7,7 +7,8 @@ set(CMAKE_CXX_STANDARD 20)
 
 set (SOURCES 
     src/main.cpp
-    src/Builtins.cpp)
+    src/Builtins.cpp
+    src/Shell.cpp)
 
 add_executable (${PROJECT_NAME} ${SOURCES})
 
