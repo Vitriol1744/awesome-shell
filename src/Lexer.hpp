@@ -6,9 +6,15 @@
  */
 #pragma once
 
+#include "Types.hpp"
+
+#include <string>
+#include <vector>
+
 enum class TokenType
 {
     eNone,
+    eSubShell,
     eLeftParen,
     eRightParen,
     eLeftBrace,
@@ -17,18 +23,73 @@ enum class TokenType
     eLess,
     eGreatGreat,
     eNewLine,
-    eGreatAmpersand,
+    eGreatAnd,
     ePipe,
-    eAmpersand,
+    eBackground,
     eWord,
+    eAssignmentWord,
+    eRedirWord,
+    eNumber,
+    eString,
+    eEnd,
+
+    // Reserved Words
+    eIf,
+    eThen,
+    eElse,
+    eElif,
+    eFi,
+    eCase,
+    eEsac,
+    eFor,
+    eSelect,
+    eWhile,
+    eUntil,
+    eDo,
+    eDone,
+    eFunction,
+    eCoProc,
+    eIn,
+    eBang,
+    eTime,
 };
 
 struct Token
 {
-    
+    Token(TokenType type, std::string_view value, usize line)
+        : type(type)
+        , value(value)
+        , line(line)
+    {
+    }
+
+    TokenType   type;
+    std::string value;
+    usize       line = 0;
 };
 
-namespace Lexer
+class Lexer
 {
-    
-}
+  public:
+    explicit Lexer(std::string_view code)
+        : code(code)
+    {
+    }
+
+    std::vector<Token> Analyze();
+
+  private:
+    std::string        code;
+    std::vector<Token> tokens;
+    usize              start   = 0;
+    usize              current = 0;
+    usize              line    = 0;
+
+    void               AddToken(TokenType type, std::string_view value = "");
+    void               ParseString();
+
+    bool               IsEndOfFile();
+    char               Advance();
+    char               Peek();
+    bool               Skip(char c);
+};

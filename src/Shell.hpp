@@ -12,7 +12,8 @@
 namespace Shell
 {
     void Initialize();
-    int Run(int,char**);
+    int RunScript(std::string_view path);
+    int RunPrompt();
 
     void PrintPrompt();
     int ExecuteCommand(std::vector<char*>& args);

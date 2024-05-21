@@ -7,31 +7,48 @@
 #include "Shell.hpp"
 
 #include "Builtins.hpp"
-#include "Types.hpp"
+#include "Lexer.hpp"
 #include "Logger.hpp"
+#include "Types.hpp"
 
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <string>
-#include <cstring>
 
-#include <unistd.h>
-#include <sys/wait.h>
 #include <pwd.h>
 #include <setjmp.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
-bool substituteString(std::string& str, const std::string& from, const std::string& to) 
+static void SplitString(const std::string&        input,
+                        std::vector<std::string>& output,
+                        std::string_view          delimeters)
+{
+    usize start = 0;
+    usize end   = 0;
+    while ((end = input.find_first_of(delimeters, start))
+           != std::string_view::npos)
+    {
+        if (end != start) output.push_back(input.substr(start, end - start));
+        start = end + 1;
+    }
+
+    if (start != input.size()) output.push_back(input.substr(start));
+}
+
+bool substituteString(std::string& str, const std::string& from,
+                      const std::string& to)
 {
     size_t start_pos = str.find(from);
-    if(start_pos == std::string::npos)
-        return false;
+    if (start_pos == std::string::npos) return false;
     str.replace(start_pos, from.length(), to);
     return true;
 }
 
 void substituteHomeDir(std::string& str)
 {
-    passwd* pw = getpwuid (geteuid());
+    passwd*     pw  = getpwuid(geteuid());
     std::string cwd = std::filesystem::current_path();
     cwd.erase(std::remove(cwd.begin(), cwd.end(), '\"'), cwd.end());
     std::string homedir;
@@ -43,40 +60,34 @@ void substituteHomeDir(std::string& str)
 
 static jmp_buf env;
 
-static void sigintHandler(int signo)
-{
-    siglongjmp(env, 42);
-}
+static void    sigintHandler(int signo) { siglongjmp(env, 42); }
 
 struct Command
 {
     std::string command;
-    bool background = false;
-    Command* redirect = nullptr;
-    Command* onSuccess = nullptr;
-    Command* onFailure = nullptr;
+    bool        background = false;
+    Command*    redirect   = nullptr;
+    Command*    onSuccess  = nullptr;
+    Command*    onFailure  = nullptr;
 };
 
 void parseCommand(Command* command)
 {
     usize it = command->command.find_first_of("|&><");
     if (it == std::string::npos) return;
-    Command* next = new Command;
-    usize firstChar = it;
+    Command* next      = new Command;
+    usize    firstChar = it;
     while (!isalpha(command->command[firstChar])) firstChar++;
     next->command = std::string(&command->command[firstChar]);
 
     switch (command->command[it])
     {
         case '|':
-            if (command->command[it+1] == '|')
-                command->onFailure = next;
-            else
-                command->redirect = next;
+            if (command->command[it + 1] == '|') command->onFailure = next;
+            else command->redirect = next;
             break;
         case '&':
-            if (command->command[it+1] == '&')
-                command->onSuccess = next;
+            if (command->command[it + 1] == '&') command->onSuccess = next;
             else command->background = true;
             break;
     }
@@ -102,67 +113,83 @@ void PrintCommand(Command* command, usize tabsize = 0)
     PrintCommand(command->redirect, tabsize);
 }
 
-void splitCommands(std::string& line, std::vector<Command*>& out)
+void splitCommands(const std::string& line, std::vector<Command*>& out)
 {
     std::istringstream iss(line);
-    std::string token;
+    std::string        token;
 
     while (std::getline(iss, token, ';'))
     {
-        token.erase(token.begin(), std::find_if(token.begin(), token.end(), [](unsigned char ch) {
-            return !std::isspace(ch);
-        }));
+        token.erase(token.begin(), std::find_if(token.begin(), token.end(),
+                                                [](unsigned char ch)
+                                                { return !std::isspace(ch); }));
         Command* command = new Command;
         command->command = token;
         parseCommand(command);
         out.push_back(command);
     }
-    for (auto c : out) LogInfo("{}", c->command);
 }
 
 namespace Shell
 {
     static int lastStatus = 0;
 
-    int ExecuteCommand(Command* command);
-    void Initialize()
+    int        ExecuteCommand(Command* command);
+    void       Initialize()
     {
         Builtins::Initialize();
-        signal (SIGINT, SIG_IGN);
-        signal (SIGQUIT, SIG_IGN);
-        signal (SIGTSTP, SIG_IGN);
-        signal (SIGTTIN, SIG_IGN);
-        signal (SIGTTOU, SIG_IGN);
-        signal (SIGCHLD, SIG_IGN);
+        signal(SIGINT, SIG_IGN);
+        signal(SIGQUIT, SIG_IGN);
+        signal(SIGTSTP, SIG_IGN);
+        signal(SIGTTIN, SIG_IGN);
+        signal(SIGTTOU, SIG_IGN);
+        signal(SIGCHLD, SIG_IGN);
         signal(SIGINT, sigintHandler);
     }
-    int Run(int argc, char** argv)
+    int RunScript(std::string_view path)
     {
-        bool status = true;
+        LogError("Executing scripts is currently not supported!");
+        return EXIT_FAILURE;
+    }
+
+    int RunPrompt()
+    {
+        bool        status = true;
         std::string line;
 
-        do
-        {
+        do {
             if (feof(stdin)) exit(0);
             if (sigsetjmp(env, 1) == 42) continue;
             Shell::PrintPrompt();
 
             std::getline(std::cin, line);
+            Lexer lexer(line);
+            auto  tokens = lexer.Analyze();
+            for (auto token : tokens) std::cout << token.value << std::endl;
+
             if (line.empty()) continue;
             std::vector<Command*> commands;
             splitCommands(line, commands);
-            substituteString(commands[0]->command, "$?", std::to_string(lastStatus));
+            substituteString(commands[0]->command, "$?",
+                             std::to_string(lastStatus));
             std::vector<char*> args;
             Shell::SplitArguments(line, args);
-            status = Shell::ExecuteCommand(commands[0]);
+            for (auto command : commands)
+                status = Shell::ExecuteCommand(command);
         } while (status);
 
         return status;
     }
+    int Run(std::string code)
+    {
+        std::vector<Command*> commands;
+
+        return EXIT_FAILURE;
+    }
 
     void PrintPrompt()
     {
-        passwd* pw = getpwuid (geteuid());
+        passwd*     pw  = getpwuid(geteuid());
         std::string cwd = std::filesystem::current_path();
         cwd.erase(std::remove(cwd.begin(), cwd.end(), '\"'), cwd.end());
         std::string homedir;
@@ -170,7 +197,7 @@ namespace Shell
         homedir = "/home/";
         homedir += pw->pw_name;
         substituteString(cwd, homedir, "~");
-        std::cout << cwd << "> ";;
+        std::cout << cwd << "> ";
     }
     int ExecuteCommand(Command* command)
     {
@@ -180,8 +207,7 @@ namespace Shell
 
         if (args[0] == nullptr) return EXIT_FAILURE;
         Builtins::BuiltinFunction builtin = Builtins::FindBultin(args[0]);
-        if (builtin)
-            return (builtin)(args);
+        if (builtin) return (builtin)(args);
 
         pid_t pid = fork();
         if (pid == 0)
@@ -190,36 +216,31 @@ namespace Shell
             LogError("Command not found: {}", args[0]);
             exit(EXIT_FAILURE);
         }
-        else if (pid < 0)
-            LogError("awsh");
+        else if (pid < 0) LogError("awsh");
         else
         {
-            int status;
+            int   status;
             pid_t wpid;
-            do
-            {
+            do {
                 wpid = waitpid(pid, &status, WUNTRACED);
-            } while (!WIFEXITED(status) && !WIFSIGNALED(status)); 
-            LogInfo("wpid: {}", wpid);
-            if (WIFEXITED(status)) 
+            } while (!WIFEXITED(status) && !WIFSIGNALED(status));
+            if (WIFEXITED(status))
             {
                 lastStatus = WEXITSTATUS(status);
                 LogInfo("exit status: {}", lastStatus);
             }
-            if (wpid == -1)
-                ExecuteCommand(command->onFailure);
-            else
-                ExecuteCommand(command->onSuccess);
+            if (wpid == -1) ExecuteCommand(command->onFailure);
+            else ExecuteCommand(command->onSuccess);
         }
 
         return 1;
     }
-    
+
     void SplitArguments(std::string_view line, std::vector<char*>& arr)
     {
         constexpr const char* TOKEN_DELIMETER = " \t\r\n\a";
         char* token = strtok((char*)line.data(), TOKEN_DELIMETER);
-        int i = 0;
+        int   i     = 0;
 
         while (token)
         {
@@ -230,4 +251,4 @@ namespace Shell
         }
         arr.push_back(nullptr);
     }
-}
+} // namespace Shell

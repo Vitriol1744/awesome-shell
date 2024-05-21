@@ -5,11 +5,16 @@
  * SPDX-License-Identifier: GPL-3
  */
 #include "Shell.hpp"
+#include "Logger.hpp"
 
 int main(int argc, char** argv)
 {
     Shell::Initialize();
-    Shell::Run(argc, argv);
-
-    return 0;
+    if (argc > 2)
+    {
+        LogError("Too many arguments provided");
+        return EXIT_FAILURE;
+    }
+    
+    return argc == 2 ? Shell::RunScript(argv[1]) : Shell::RunPrompt();
 }
